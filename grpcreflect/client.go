@@ -6,6 +6,7 @@ import (
 	"io"
 	"reflect"
 	"runtime"
+	"strings"
 	"sync"
 
 	"github.com/golang/protobuf/proto"
@@ -121,6 +122,9 @@ type Client struct {
 	filesBySymbol    map[string]*desc.FileDescriptor
 	filesByExtension map[extDesc]*desc.FileDescriptor
 }
+
+//OptOutDeps FIXME: remove this when a solution will be found for https://github.com/fullstorydev/grpcui/issues/46
+var OptOutDeps []string
 
 // NewClient creates a new Client with the given root context and using the
 // given RPC stub for talking to the server.
@@ -291,7 +295,25 @@ func (cr *Client) getAndCacheFileDescriptors(req *rpb.ServerReflectionRequest, e
 	return cr.descriptorFromProto(firstFd)
 }
 
+func (cr *Client) optoutDependencies(fd *dpb.FileDescriptorProto) {
+	var deps []string
+	for _, d := range fd.GetDependency() {
+		hit := false
+		for _, p := range OptOutDeps {
+			if strings.Contains(d, p) {
+				hit = true
+				break
+			}
+		}
+		if !hit {
+			deps = append(deps, d)
+		}
+	}
+	fd.Dependency = deps
+}
+
 func (cr *Client) descriptorFromProto(fd *dpb.FileDescriptorProto) (*desc.FileDescriptor, error) {
+	cr.optoutDependencies(fd)
 	deps := make([]*desc.FileDescriptor, len(fd.GetDependency()))
 	for i, depName := range fd.GetDependency() {
 		if dep, err := cr.FileByFilename(depName); err != nil {
